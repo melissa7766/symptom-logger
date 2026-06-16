@@ -1,98 +1,228 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useState } from "react";
+import {
+  Text,
+  View,
+  StyleSheet,
+  Pressable,
+  ScrollView,
+  TextInput,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+// Each symptom defines its own ordered list of severity levels.
+const DEFAULT_LEVELS = ["Mild", "Moderate", "Severe"];
+const SYMPTOM_DEFS: { name: string; levels: string[] }[] = [
+  { name: "Cramps", levels: DEFAULT_LEVELS },
+  { name: "Fatigue", levels: DEFAULT_LEVELS },
+  { name: "Bloating", levels: DEFAULT_LEVELS },
+  { name: "Nausea", levels: DEFAULT_LEVELS },
+  { name: "Back pain", levels: DEFAULT_LEVELS },
+  { name: "Bleeding", levels: ["Spotting", "Light", "Heavy", "Flooding"] },
+];
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const [painLevel, setPainLevel] = useState<number | null>(null);
+  const [note, setNote] = useState("");
+  const [symptoms, setSymptoms] = useState<Record<string, string>>({});
+  const [saved, setSaved] = useState(false);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  const levels = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+  function cycleSymptom(symptom: string, symptomLevels: string[]) {
+    setSymptoms((current) => {
+      const cycle = [null, ...symptomLevels];
+      const currentLevel = current[symptom] ?? null;
+      const idx = cycle.indexOf(currentLevel);
+      const next = cycle[(idx + 1) % cycle.length];
+      const updated = { ...current };
+      if (next === null) {
+        delete updated[symptom];
+      } else {
+        updated[symptom] = next;
+      }
+      return updated;
+    });
+  }
+
+  // Color deepens with severity, based on position in that symptom's scale.
+  function severityStyle(level: string | null, symptomLevels: string[]) {
+    if (!level) return null;
+    const pos = symptomLevels.indexOf(level);
+    const ratio = symptomLevels.length > 1 ? pos / (symptomLevels.length - 1) : 1;
+    if (ratio < 0.34) return styles.chipLow;
+    if (ratio < 0.67) return styles.chipMid;
+    return styles.chipHigh;
+  }
+
+  async function handleSave() {
+    if (painLevel === null) return;
+
+    const entry = {
+      id: Date.now().toString() + Math.random().toString(36).slice(2),
+      date: new Date().toISOString(),
+      painLevel,
+      note,
+      symptoms,
+    };
+
+    try {
+      const existing = await AsyncStorage.getItem("entries");
+      const list = existing ? JSON.parse(existing) : [];
+      list.push(entry);
+      await AsyncStorage.setItem("entries", JSON.stringify(list));
+
+      setPainLevel(null);
+      setNote("");
+      setSymptoms({});
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      console.log("Save failed", e);
+    }
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.title}>How's your pain today?</Text>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.scrollRow}
+        >
+          {levels.map((level) => (
+            <Pressable
+              key={level}
+              onPress={() => setPainLevel(level)}
+              style={[
+                styles.bubble,
+                painLevel === level && styles.bubbleSelected,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.bubbleText,
+                  painLevel === level && styles.bubbleTextSelected,
+                ]}
+              >
+                {level}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <Text style={styles.label}>Symptoms</Text>
+        <Text style={styles.hint}>Tap a symptom to cycle its severity</Text>
+        <View style={styles.symptomWrap}>
+          {SYMPTOM_DEFS.map(({ name, levels: symptomLevels }) => {
+            const level = symptoms[name] ?? null;
+            return (
+              <Pressable
+                key={name}
+                onPress={() => cycleSymptom(name, symptomLevels)}
+                style={[styles.chip, severityStyle(level, symptomLevels)]}
+              >
+                <Text style={[styles.chipText, level && styles.chipTextSelected]}>
+                  {name}
+                  {level ? ` · ${level}` : ""}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <Text style={styles.label}>Notes</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Anything else about today?"
+          value={note}
+          onChangeText={setNote}
+          multiline
+        />
+
+        <Pressable
+          onPress={handleSave}
+          style={[
+            styles.saveButton,
+            painLevel === null && styles.saveButtonDisabled,
+          ]}
+        >
+          <Text style={styles.saveButtonText}>Save Entry</Text>
+        </Pressable>
+
+        {saved && <Text style={styles.savedMsg}>✓ Entry saved!</Text>}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: { flex: 1, backgroundColor: "#fff" },
+  content: { padding: 16, paddingBottom: 40 },
+  title: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#c2185b",
+    textAlign: "center",
+    marginBottom: 20,
+    marginTop: 10,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  scrollRow: { paddingVertical: 4, gap: 10, alignItems: "center" },
+  bubble: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#f3e5f0",
+    justifyContent: "center",
+    alignItems: "center",
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  bubbleSelected: { backgroundColor: "#c2185b" },
+  bubbleText: { fontSize: 18, fontWeight: "600", color: "#c2185b" },
+  bubbleTextSelected: { color: "#fff" },
+  label: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginTop: 28,
+    marginBottom: 4,
+  },
+  hint: { fontSize: 12, color: "#999", marginBottom: 10 },
+  symptomWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#f3e5f0",
+  },
+  chipLow: { backgroundColor: "#f3a9cb" },
+  chipMid: { backgroundColor: "#d65a8e" },
+  chipHigh: { backgroundColor: "#c2185b" },
+  chipText: { color: "#c2185b", fontWeight: "500" },
+  chipTextSelected: { color: "#fff" },
+  input: {
+    borderWidth: 1,
+    borderColor: "#e0c5d8",
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    minHeight: 70,
+    textAlignVertical: "top",
+  },
+  saveButton: {
+    backgroundColor: "#c2185b",
+    padding: 16,
+    borderRadius: 12,
+    alignItems: "center",
+    marginTop: 28,
+  },
+  saveButtonDisabled: { backgroundColor: "#e0b8cd" },
+  saveButtonText: { color: "#fff", fontSize: 17, fontWeight: "600" },
+  savedMsg: {
+    textAlign: "center",
+    color: "#2e7d32",
+    fontSize: 16,
+    marginTop: 16,
   },
 });
